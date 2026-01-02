@@ -8,6 +8,7 @@ import {
 } from 'react'
 import { AudioEngine } from './AudioEngine'
 import { useAudioStore } from '../stores'
+import { BreathPhase } from '../engines/breathEngine'
 
 interface AudioContextValue {
   init: () => Promise<void>
@@ -17,6 +18,8 @@ interface AudioContextValue {
   setVolume: (value: number) => void
   setMuted: (muted: boolean) => void
   previewTone: (freqHz: number) => void
+  setBreathState: (phase: BreathPhase, progress: number, kundaliniY: number) => void
+  setBreathBpm: (bpm: number) => void
   getTransportSeconds: () => number
   isInitialized: boolean
 }
@@ -108,6 +111,14 @@ export function AudioProvider({ children }: AudioProviderProps) {
     engineRef.current?.previewTone(freqHz)
   }, [])
 
+  const setBreathState = useCallback((phase: BreathPhase, progress: number, kundaliniY: number) => {
+    engineRef.current?.setBreathState(phase, progress, kundaliniY)
+  }, [])
+
+  const setBreathBpm = useCallback((bpm: number) => {
+    engineRef.current?.setBreathBpm(bpm)
+  }, [])
+
   const getTransportSeconds = useCallback(() => {
     return engineRef.current?.getTransportSeconds() ?? 0
   }, [])
@@ -120,6 +131,8 @@ export function AudioProvider({ children }: AudioProviderProps) {
     setVolume,
     setMuted,
     previewTone,
+    setBreathState,
+    setBreathBpm,
     getTransportSeconds,
     isInitialized,
   }

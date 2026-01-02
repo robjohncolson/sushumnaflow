@@ -60,7 +60,7 @@ function PhaseIndicator() {
       </span>
       <div className="w-48 h-1 bg-white/10 rounded-full overflow-hidden">
         <div
-          className="h-full transition-all duration-100"
+          className="h-full"
           style={{
             width: `${progress * 100}%`,
             backgroundColor: color,

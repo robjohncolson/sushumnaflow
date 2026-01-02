@@ -29,12 +29,8 @@ function DantianNode({ entry, learnMode, onHover, onSelect, onPreviewTone }: Dan
   const meshRef = useRef<THREE.Mesh>(null)
   const outerRef = useRef<THREE.Mesh>(null)
 
-  // Parse color
+  // Parse color (no HDR boost for wireframe style)
   const color = useMemo(() => new THREE.Color(entry.color), [entry.color])
-  const hdrColor = useMemo(
-    () => [color.r * 2, color.g * 2, color.b * 2] as [number, number, number],
-    [color]
-  )
 
   // Animation
   useFrame(({ clock }) => {
@@ -73,19 +69,19 @@ function DantianNode({ entry, learnMode, onHover, onSelect, onPreviewTone }: Dan
       position={[entry.anchor.x, entry.anchor.y, entry.anchor.z]}
       userData={{ codexId: entry.id }}
     >
-      {/* Core sphere */}
+      {/* Core sphere - wireframe */}
       <mesh
         ref={meshRef}
         onPointerOver={handlePointerOver}
         onPointerOut={handlePointerOut}
         onClick={handleClick}
       >
-        <sphereGeometry args={[size, 16, 12]} />
+        <icosahedronGeometry args={[size, 1]} />
         <meshBasicMaterial
-          color={hdrColor}
-          toneMapped={false}
+          color={color}
           transparent
-          opacity={0.7}
+          opacity={0.6}
+          wireframe
         />
       </mesh>
 
@@ -93,8 +89,7 @@ function DantianNode({ entry, learnMode, onHover, onSelect, onPreviewTone }: Dan
       <mesh ref={outerRef}>
         <icosahedronGeometry args={[size * 1.5, 1]} />
         <meshBasicMaterial
-          color={hdrColor}
-          toneMapped={false}
+          color={color}
           transparent
           opacity={0.3}
           wireframe

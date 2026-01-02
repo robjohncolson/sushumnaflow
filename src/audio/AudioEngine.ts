@@ -1,4 +1,5 @@
 import * as Tone from 'tone'
+import { BreathPhase } from '../engines/breathEngine'
 
 /**
  * Audio Layer structure following the spec
@@ -34,14 +35,23 @@ export class AudioEngine {
   private masterLimiter!: Tone.Limiter
 
   private currentLumens = 0
-
-  // Chakra scale for arpeggiator (C minor pentatonic extended)
-  private readonly chakraScale = ['C3', 'Eb3', 'F3', 'G3', 'Bb3', 'C4', 'Eb4', 'F4', 'G4']
+  private lastPhase: BreathPhase = BreathPhase.INHALE
+  private breathBpm = 4 // breaths per minute
 
   // Preview tone synth (reused for all hover events)
   private previewSynth!: Tone.Synth
   private previewVolume!: Tone.Volume
   private previewReverb!: Tone.Reverb
+
+  // Breath-synced synths (triggered on phase changes)
+  private breathSynth!: Tone.PolySynth
+  private breathVolume!: Tone.Volume
+  private breathReverb!: Tone.Reverb
+
+  // Rising tone for Kundalini ascent
+  private risingSynth!: Tone.Synth
+  private risingVolume!: Tone.Volume
+  private risingFilter!: Tone.Filter
 
   private constructor() {
     // Private constructor for singleton
@@ -89,11 +99,52 @@ export class AudioEngine {
 
   private setupLayers(): void {
     this.createDroneLayer()
-    this.createPulseLayer()
-    this.createBassLayer()
-    this.createArpLayer()
-    this.createMelodyLayer()
+    // Disabled independent loops - they don't sync to breath
+    // this.createPulseLayer()
+    // this.createBassLayer()
+    // this.createArpLayer()
+    // this.createMelodyLayer()
     this.createPreviewSynth()
+    this.createBreathSynths()
+  }
+
+  /**
+   * Create breath-synced synthesizers
+   * These respond directly to breath phase changes
+   */
+  private createBreathSynths(): void {
+    // Breath transition synth - plays chords on phase changes
+    this.breathVolume = new Tone.Volume(-20)
+    this.breathReverb = new Tone.Reverb({ decay: 3, wet: 0.6 })
+
+    this.breathSynth = new Tone.PolySynth(Tone.Synth, {
+      oscillator: { type: 'sine' },
+      envelope: {
+        attack: 0.5,
+        decay: 1,
+        sustain: 0.3,
+        release: 2,
+      },
+    })
+    this.breathSynth.maxPolyphony = 4
+    this.breathSynth.chain(this.breathReverb, this.breathVolume, this.masterBus)
+
+    // Rising synth - gentle tone that rises with Kundalini
+    // Using sine wave with heavy reverb for ethereal quality
+    this.risingVolume = new Tone.Volume(-100) // Start silent
+    this.risingFilter = new Tone.Filter(800, 'lowpass', -12)
+    const risingReverb = new Tone.Reverb({ decay: 4, wet: 0.7 })
+
+    this.risingSynth = new Tone.Synth({
+      oscillator: { type: 'sine' },
+      envelope: {
+        attack: 0.8,  // Slow attack for gentle fade in
+        decay: 0.3,
+        sustain: 0.6,
+        release: 1.5, // Long release for smooth fade
+      },
+    })
+    this.risingSynth.chain(this.risingFilter, risingReverb, this.risingVolume, this.masterBus)
   }
 
   /**
@@ -154,165 +205,113 @@ export class AudioEngine {
     })
   }
 
+  // NOTE: Pulse, Bass, Arp, Melody layers removed
+  // They ran on fixed Transport timing that didn't sync with breath
+  // Now using breath-synced audio only (drone + breathSynth + risingSynth)
+
   /**
-   * PULSE (threshold 1+) - Rhythmic 8th note texture
-   * FeedbackDelay for spaciousness
+   * Set breath BPM - updates internal timing
    */
-  private createPulseLayer(): void {
-    const volume = new Tone.Volume(-100) // Start silent
-    const filter = new Tone.Filter(1200, 'lowpass')
-    const delay = new Tone.FeedbackDelay('8n', 0.25)
-
-    const synth = new Tone.Synth({
-      oscillator: { type: 'triangle' },
-      envelope: { attack: 0.01, decay: 0.15, sustain: 0.1, release: 0.3 },
-    })
-
-    synth.chain(filter, delay, volume, this.masterBus)
-
-    // Incommensurable loop length (17 beats)
-    const loop = new Tone.Loop((time) => {
-      if (!this.layers.get('pulse')?.active) return
-      const note = Math.random() > 0.4 ? 'C4' : 'G3'
-      synth.triggerAttackRelease(note, '16n', time)
-    }, '8n')
-
-    this.layers.set('pulse', {
-      synth,
-      volume,
-      filter,
-      effects: [delay],
-      loop,
-      active: false,
-      threshold: 1,
-    })
+  setBreathBpm(bpm: number): void {
+    this.breathBpm = bpm
+    // Scale transport BPM so rhythmic elements sync with breath
+    // At 4 breaths/min, one cycle = 15 seconds
+    // Musical BPM should be a multiple that feels natural
+    if (this.initialized) {
+      const musicalBpm = Math.max(40, bpm * 16) // 4 BPM breath = 64 BPM music
+      Tone.getTransport().bpm.rampTo(musicalBpm, 2)
+    }
   }
 
   /**
-   * BASS (threshold 2+) - Sub-bass grounding
-   * 200Hz lowpass filter
+   * Set the current breath state - called every frame
+   * Handles phase transitions and continuous modulation
    */
-  private createBassLayer(): void {
-    const volume = new Tone.Volume(-100)
-    const filter = new Tone.Filter(200, 'lowpass', -24)
+  setBreathState(phase: BreathPhase, progress: number, kundaliniY: number): void {
+    if (!this.initialized) return
 
-    const synth = new Tone.Synth({
-      oscillator: { type: 'sine' },
-      envelope: { attack: 0.1, decay: 0.4, sustain: 0.6, release: 0.8 },
-    })
+    // Detect phase change
+    if (phase !== this.lastPhase) {
+      this.onPhaseChange(phase)
+      this.lastPhase = phase
+    }
 
-    synth.chain(filter, volume, this.masterBus)
-
-    // 23-beat incommensurable pattern
-    let noteIndex = 0
-    const bassNotes = ['C2', 'C2', 'G1', 'C2', 'Eb2']
-
-    const loop = new Tone.Loop((time) => {
-      if (!this.layers.get('bass')?.active) return
-      const note = bassNotes[noteIndex % bassNotes.length]
-      synth.triggerAttackRelease(note, '2n', time)
-      noteIndex++
-    }, '2n')
-
-    this.layers.set('bass', {
-      synth,
-      volume,
-      filter,
-      effects: [],
-      loop,
-      active: false,
-      threshold: 2,
-    })
+    // Continuous modulation based on phase and progress
+    this.modulateBreathAudio(phase, progress, kundaliniY)
   }
 
   /**
-   * ARP (threshold 3+) - Random-walk arpeggiator
-   * AutoFilter synced to Transport
+   * Handle phase transitions - trigger appropriate sounds
    */
-  private createArpLayer(): void {
-    const volume = new Tone.Volume(-100)
-    const autoFilter = new Tone.AutoFilter({
-      frequency: '4n',
-      baseFrequency: 400,
-      octaves: 3,
-    }).start()
+  private onPhaseChange(newPhase: BreathPhase): void {
+    // Calculate note duration based on breath BPM
+    const cycleDuration = 60 / this.breathBpm
+    const phaseDuration = cycleDuration / 4
 
-    const synth = new Tone.PolySynth(Tone.Synth, {
-      oscillator: { type: 'sawtooth' },
-      envelope: { attack: 0.02, decay: 0.2, sustain: 0.2, release: 0.4 },
-    })
-    synth.maxPolyphony = 4
+    switch (newPhase) {
+      case BreathPhase.INHALE:
+        // Soft descending chord - prana entering
+        this.breathSynth.triggerAttackRelease(['C3', 'G3', 'C4'], phaseDuration * 0.8)
+        // Stop rising synth
+        this.risingSynth.triggerRelease()
+        this.risingVolume.volume.rampTo(-100, 0.5)
+        break
 
-    synth.chain(autoFilter, volume, this.masterBus)
+      case BreathPhase.HOLD_IN:
+        // Tension chord - energy building
+        this.breathSynth.triggerAttackRelease(['C3', 'Eb3', 'G3', 'Bb3'], phaseDuration * 0.9)
+        break
 
-    // Random walk through chakra scale
-    const pattern = new Tone.Pattern(
-      (time, note) => {
-        if (!this.layers.get('arp')?.active) return
-        synth.triggerAttackRelease(note, '8n', time)
-      },
-      this.chakraScale,
-      'randomWalk'
-    )
-    pattern.interval = '8n'
-    pattern.probability = 0.6
-    pattern.humanize = '32n'
+      case BreathPhase.EXHALE:
+        // Rising tone begins - Kundalini ascends (gentle volume)
+        this.risingVolume.volume.rampTo(-24, 0.5)
+        this.risingSynth.triggerAttack('A2') // Start at A2 (110Hz)
+        // Ascending chord
+        this.breathSynth.triggerAttackRelease(['C3', 'E3', 'G3', 'C4'], phaseDuration * 0.8)
+        break
 
-    this.layers.set('arp', {
-      synth,
-      volume,
-      effects: [autoFilter],
-      loop: pattern,
-      active: false,
-      threshold: 3,
-    })
+      case BreathPhase.HOLD_OUT:
+        // Crown arrival - shimmering high chord
+        this.breathSynth.triggerAttackRelease(['C4', 'E4', 'G4', 'C5'], phaseDuration * 0.9)
+        // Rising synth reaches peak
+        this.risingFilter.frequency.rampTo(2000, 0.5)
+        break
+    }
   }
 
   /**
-   * MELODY (threshold 4+) - High-frequency shimmer
-   * Higher reverb wet (0.6+)
+   * Continuous modulation based on breath state
    */
-  private createMelodyLayer(): void {
-    const volume = new Tone.Volume(-100)
-    const reverb = new Tone.Reverb({ decay: 6, wet: 0.65 })
-    const filter = new Tone.Filter(3000, 'highpass')
+  private modulateBreathAudio(phase: BreathPhase, progress: number, kundaliniY: number): void {
+    // Modulate rising synth frequency based on Kundalini position
+    // Y ranges from -3 to +3, map to frequency 110Hz to 220Hz (gentle 1 octave rise)
+    if (phase === BreathPhase.EXHALE || phase === BreathPhase.HOLD_OUT) {
+      const yNorm = (kundaliniY + 3) / 6 // 0 to 1
+      const freq = 110 * Math.pow(2, yNorm) // 110Hz to 220Hz (1 octave, A2 to A3)
+      this.risingSynth.frequency.rampTo(freq, 0.3) // Slower ramp for smoothness
+      this.risingFilter.frequency.rampTo(400 + yNorm * 600, 0.3)
+    }
 
-    const synth = new Tone.Synth({
-      oscillator: { type: 'sine' },
-      envelope: { attack: 0.3, decay: 0.5, sustain: 0.4, release: 1.5 },
-    })
-
-    synth.chain(filter, reverb, volume, this.masterBus)
-
-    // Sparse melody with 29-beat cycle (prime number)
-    const melodyNotes = ['C5', 'Eb5', 'G5', 'Bb5', 'C6']
-    let melodyIndex = 0
-
-    const loop = new Tone.Loop((time) => {
-      if (!this.layers.get('melody')?.active) return
-      if (Math.random() > 0.3) return // Sparse triggering
-
-      const note = melodyNotes[melodyIndex % melodyNotes.length]
-      synth.triggerAttackRelease(note, '2n', time)
-      melodyIndex++
-    }, '4n')
-
-    this.layers.set('melody', {
-      synth,
-      volume,
-      filter,
-      effects: [reverb],
-      loop,
-      active: false,
-      threshold: 4,
-    })
+    // Drone pitch bend based on breath phase
+    const drone = this.layers.get('drone')
+    if (drone) {
+      let detune = 0
+      if (phase === BreathPhase.INHALE) {
+        // Slight pitch drop during inhale
+        detune = -progress * 20
+      } else if (phase === BreathPhase.EXHALE) {
+        // Slight pitch rise during exhale
+        detune = progress * 30
+      }
+      (drone.synth as Tone.FatOscillator).detune.rampTo(detune, 0.2)
+    }
   }
 
   /**
    * Set the Lumens value (0-5) and modulate all audio parameters
    * Uses rampTo for smooth transitions
    */
-  setLumens(value: number, transitionTime = 2): void {
+  setLumens(value: number, transitionTime = 0.5): void {
     if (!this.initialized) return
 
     this.currentLumens = Math.max(0, Math.min(5, value))
@@ -461,6 +460,14 @@ export class AudioEngine {
     this.previewSynth?.dispose()
     this.previewVolume?.dispose()
     this.previewReverb?.dispose()
+
+    // Dispose breath synths
+    this.breathSynth?.dispose()
+    this.breathVolume?.dispose()
+    this.breathReverb?.dispose()
+    this.risingSynth?.dispose()
+    this.risingVolume?.dispose()
+    this.risingFilter?.dispose()
 
     // Dispose master chain (with null checks)
     this.masterReverb?.dispose()

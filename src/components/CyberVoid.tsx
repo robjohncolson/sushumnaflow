@@ -1,12 +1,14 @@
 import { useRef, useEffect } from 'react'
 import { Canvas, useThree } from '@react-three/fiber'
-import { Grid, AdaptiveDpr, PerformanceMonitor, OrbitControls } from '@react-three/drei'
-import { EffectComposer, Bloom } from '@react-three/postprocessing'
-import { KernelSize } from 'postprocessing'
+import { AdaptiveDpr, PerformanceMonitor, OrbitControls } from '@react-three/drei'
 import * as THREE from 'three'
 import { PranaParticles } from './PranaParticles'
 import { KundaliniLayer } from './KundaliniLayer'
 import { OrbitLayer } from './OrbitLayer'
+import { KundaliniOrb } from './KundaliniOrb'
+import { NadiShodhana } from './NadiShodhana'
+import { BandhaRings } from './BandhaRings'
+import { ProgressiveGrid } from './ProgressiveGrid'
 import { disposeScene } from '../three/ResourceTracker'
 import { useVisualStore, useBreathStore, useViewStore } from '../stores'
 
@@ -41,27 +43,11 @@ function ContextHandler() {
 }
 
 /**
- * Adaptive bloom effects based on performance
+ * Post-processing effects - disabled for wireframe style
  */
 function AdaptiveEffects() {
-  const { bloomEnabled } = useVisualStore()
-  const { performance } = useThree((state) => ({ performance: state.performance }))
-
-  if (!bloomEnabled || performance.current < 0.5) return null
-
-  return (
-    <EffectComposer multisampling={performance.current >= 0.8 ? 4 : 0}>
-      <Bloom
-        intensity={performance.current >= 0.8 ? 1.5 : 0.8}
-        luminanceThreshold={1}
-        luminanceSmoothing={0.025}
-        mipmapBlur={true}
-        kernelSize={
-          performance.current >= 0.8 ? KernelSize.MEDIUM : KernelSize.SMALL
-        }
-      />
-    </EffectComposer>
-  )
+  // Bloom disabled for clean wireframe aesthetic
+  return null
 }
 
 /**
@@ -101,32 +87,26 @@ function Scene() {
       {/* Ambient light for glass material */}
       <ambientLight intensity={0.2} />
 
-      {/* Infinite neon grid */}
-      <Grid
-        infiniteGrid
-        cellSize={1}
-        cellThickness={0.3}
-        cellColor="#003322"
-        sectionSize={5}
-        sectionThickness={0.8}
-        sectionColor="#00ff88"
-        fadeDistance={50}
-        fadeStrength={1.5}
-        position={[0, -3, 0]}
-      />
+      {/* Progressive neon grid - shifts hue over time */}
+      <ProgressiveGrid />
 
       {/* Kundalini Layer - visible only in KUNDALINI mode */}
       <group visible={mapMode === 'KUNDALINI'}>
         <KundaliniLayer />
+        {/* Bandha lock indicators */}
+        {isRunning && <BandhaRings />}
+        {/* Single Kundalini orb rising through Sushumna */}
+        {isRunning && <KundaliniOrb />}
+        {/* Nadi Shodhana alternate nostril indicators */}
+        {isRunning && <NadiShodhana />}
       </group>
 
       {/* Orbit Layer - visible only in ORBIT mode */}
       <group visible={mapMode === 'ORBIT'}>
         <OrbitLayer />
+        {/* Prana particles for ORBIT mode (microcosmic orbit path) */}
+        {isRunning && <PranaParticles />}
       </group>
-
-      {/* Prana particles - only animate when running */}
-      {isRunning && <PranaParticles />}
 
       {/* Camera controls */}
       <OrbitControls

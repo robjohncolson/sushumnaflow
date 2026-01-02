@@ -26,9 +26,9 @@ const CHAKRA_COLORS = [
   new THREE.Color('#ff00ff'), // Crown - Violet
 ]
 
-// Orbit colors for ORBIT mode (yin/yang blend)
-const ORBIT_COLOR_YANG = new THREE.Color('#ffaa44') // Golden ascending
-const ORBIT_COLOR_YIN = new THREE.Color('#44aaff') // Silver descending
+// Orbit colors for ORBIT mode (muted for wireframe)
+const ORBIT_COLOR_YANG = new THREE.Color('#cc8844') // Golden ascending
+const ORBIT_COLOR_YIN = new THREE.Color('#4488aa') // Silver descending
 
 interface ParticleData {
   offset: number
@@ -103,15 +103,15 @@ export function PranaParticles() {
     return data
   }, [])
 
-  // Shared geometry and material
+  // Shared geometry and material (wireframe style)
   const geometry = useMemo(() => new THREE.IcosahedronGeometry(0.04, 0), [])
   const material = useMemo(
     () =>
       new THREE.MeshBasicMaterial({
-        color: new THREE.Color(0, 2, 2),
-        toneMapped: false,
+        color: new THREE.Color('#00aaaa'),
         transparent: true,
-        opacity: 0.9,
+        opacity: 0.7,
+        wireframe: true,
       }),
     []
   )
