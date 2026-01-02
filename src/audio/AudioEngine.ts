@@ -38,6 +38,11 @@ export class AudioEngine {
   // Chakra scale for arpeggiator (C minor pentatonic extended)
   private readonly chakraScale = ['C3', 'Eb3', 'F3', 'G3', 'Bb3', 'C4', 'Eb4', 'F4', 'G4']
 
+  // Preview tone synth (reused for all hover events)
+  private previewSynth!: Tone.Synth
+  private previewVolume!: Tone.Volume
+  private previewReverb!: Tone.Reverb
+
   private constructor() {
     // Private constructor for singleton
   }
@@ -88,6 +93,28 @@ export class AudioEngine {
     this.createBassLayer()
     this.createArpLayer()
     this.createMelodyLayer()
+    this.createPreviewSynth()
+  }
+
+  /**
+   * Preview synth for Learn Mode hover interactions
+   * Gentle, short tone that plays the chakra/dantian frequency
+   */
+  private createPreviewSynth(): void {
+    this.previewVolume = new Tone.Volume(-18) // Gentle volume
+    this.previewReverb = new Tone.Reverb({ decay: 2, wet: 0.5 })
+
+    this.previewSynth = new Tone.Synth({
+      oscillator: { type: 'sine' },
+      envelope: {
+        attack: 0.08,
+        decay: 0.3,
+        sustain: 0.2,
+        release: 0.8,
+      },
+    })
+
+    this.previewSynth.chain(this.previewReverb, this.previewVolume, this.masterBus)
   }
 
   /**
@@ -390,6 +417,19 @@ export class AudioEngine {
   }
 
   /**
+   * Play a gentle preview tone at the given frequency
+   * Used for Learn Mode hover interactions
+   * Reuses the same synth node (no allocation per call)
+   */
+  previewTone(freqHz: number): void {
+    if (!this.initialized || !this.previewSynth) return
+
+    // Trigger a short, gentle tone at the chakra/dantian frequency
+    // The synth envelope handles the gentle attack/release
+    this.previewSynth.triggerAttackRelease(freqHz, '8n')
+  }
+
+  /**
    * Get current transport time (for visuals to sync)
    */
   getTransportSeconds(): number {
@@ -416,6 +456,11 @@ export class AudioEngine {
     }
 
     this.layers.clear()
+
+    // Dispose preview synth
+    this.previewSynth?.dispose()
+    this.previewVolume?.dispose()
+    this.previewReverb?.dispose()
 
     // Dispose master chain (with null checks)
     this.masterReverb?.dispose()

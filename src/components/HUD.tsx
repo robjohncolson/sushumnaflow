@@ -8,10 +8,13 @@ import {
   RotateCcw,
   Orbit,
   ArrowUpDown,
+  BookOpen,
+  BookX,
 } from 'lucide-react'
-import { useBreathStore, useAudioStore } from '../stores'
+import { useBreathStore, useAudioStore, useViewStore } from '../stores'
 import { useAudio } from '../audio'
 import { calculateBreathState, getPhaseLabel, getPhaseColor } from '../engines/breathEngine'
+import { CodexCard } from './CodexCard'
 
 /**
  * Phase indicator showing current breath phase
@@ -193,9 +196,9 @@ function RatioInputs() {
  * Main HUD component
  */
 export function HUD() {
-  const { bpm, setBpm, orbitMode, setOrbitMode, isRunning, setIsRunning } =
-    useBreathStore()
+  const { bpm, setBpm, isRunning, setIsRunning } = useBreathStore()
   const { volume, setVolume, isMuted, toggleMuted } = useAudioStore()
+  const { mapMode, setMapMode, learnMode, setLearnMode } = useViewStore()
   const { init, start, stop, isInitialized } = useAudio()
 
   const handleStartStop = useCallback(async () => {
@@ -217,9 +220,13 @@ export function HUD() {
     setIsRunning(false)
   }, [stop, setIsRunning])
 
-  const toggleOrbit = useCallback(() => {
-    setOrbitMode(orbitMode === 'linear' ? 'microcosmic' : 'linear')
-  }, [orbitMode, setOrbitMode])
+  const toggleMapMode = useCallback(() => {
+    setMapMode(mapMode === 'KUNDALINI' ? 'ORBIT' : 'KUNDALINI')
+  }, [mapMode, setMapMode])
+
+  const toggleLearnMode = useCallback(() => {
+    setLearnMode(!learnMode)
+  }, [learnMode, setLearnMode])
 
   return (
     <div className="absolute inset-0 pointer-events-none">
@@ -266,23 +273,40 @@ export function HUD() {
         </div>
       </div>
 
-      {/* Left side - Orbit mode toggle */}
+      {/* Left side - Map Mode + Learn Mode toggles */}
       <div className="absolute left-8 top-1/2 -translate-y-1/2 pointer-events-auto">
-        <div className="flex flex-col items-center gap-2">
-          <ControlButton
-            onClick={toggleOrbit}
-            active={orbitMode === 'microcosmic'}
-            title={`Mode: ${orbitMode}`}
-          >
-            {orbitMode === 'linear' ? (
-              <ArrowUpDown size={20} />
-            ) : (
-              <Orbit size={20} />
-            )}
-          </ControlButton>
-          <span className="text-[10px] text-white/40 uppercase tracking-wider">
-            {orbitMode === 'linear' ? 'Kundalini' : 'Microcosmic'}
-          </span>
+        <div className="flex flex-col items-center gap-4">
+          {/* Map Mode Toggle */}
+          <div className="flex flex-col items-center gap-2">
+            <ControlButton
+              onClick={toggleMapMode}
+              active={mapMode === 'ORBIT'}
+              title={`Mode: ${mapMode}`}
+            >
+              {mapMode === 'KUNDALINI' ? (
+                <ArrowUpDown size={20} />
+              ) : (
+                <Orbit size={20} />
+              )}
+            </ControlButton>
+            <span className="text-[10px] text-white/40 uppercase tracking-wider">
+              {mapMode === 'KUNDALINI' ? 'Kundalini' : 'Orbit'}
+            </span>
+          </div>
+
+          {/* Learn Mode Toggle */}
+          <div className="flex flex-col items-center gap-2">
+            <ControlButton
+              onClick={toggleLearnMode}
+              active={learnMode}
+              title={learnMode ? 'Learn Mode: ON' : 'Learn Mode: OFF'}
+            >
+              {learnMode ? <BookOpen size={20} /> : <BookX size={20} />}
+            </ControlButton>
+            <span className="text-[10px] text-white/40 uppercase tracking-wider">
+              {learnMode ? 'Learn' : 'Practice'}
+            </span>
+          </div>
         </div>
       </div>
 
@@ -306,6 +330,9 @@ export function HUD() {
           Sushumna
         </h1>
       </div>
+
+      {/* Codex Card (Learn Mode) */}
+      <CodexCard />
     </div>
   )
 }

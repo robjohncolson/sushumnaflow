@@ -16,6 +16,7 @@ interface AudioContextValue {
   setLumens: (value: number) => void
   setVolume: (value: number) => void
   setMuted: (muted: boolean) => void
+  previewTone: (freqHz: number) => void
   getTransportSeconds: () => number
   isInitialized: boolean
 }
@@ -103,6 +104,10 @@ export function AudioProvider({ children }: AudioProviderProps) {
     engineRef.current?.setMuted(muted)
   }, [])
 
+  const previewTone = useCallback((freqHz: number) => {
+    engineRef.current?.previewTone(freqHz)
+  }, [])
+
   const getTransportSeconds = useCallback(() => {
     return engineRef.current?.getTransportSeconds() ?? 0
   }, [])
@@ -114,6 +119,7 @@ export function AudioProvider({ children }: AudioProviderProps) {
     setLumens,
     setVolume,
     setMuted,
+    previewTone,
     getTransportSeconds,
     isInitialized,
   }

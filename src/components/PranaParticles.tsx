@@ -1,75 +1,114 @@
 import { useRef, useMemo, useEffect } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
-import { useBreathStore, useVisualStore } from '../stores'
+import { useVisualStore, useViewStore, useBreathStore } from '../stores'
 import { useAudio } from '../audio'
 import { calculateBreathState, BreathPhase } from '../engines/breathEngine'
 
 // Pre-allocated vectors to avoid allocations in useFrame
 const tempObject = new THREE.Object3D()
 const tempColor = new THREE.Color()
+const tempVec = new THREE.Vector3()
 
-// Chakra positions along the spine (y-axis)
-const CHAKRA_POSITIONS = [
-  -2.5, // Root (Muladhara)
-  -1.5, // Sacral (Svadhisthana)
-  -0.5, // Solar Plexus (Manipura)
-  0.5, // Heart (Anahata)
-  1.5, // Throat (Vishuddha)
-  2.5, // Third Eye (Ajna)
-  3.5, // Crown (Sahasrara)
-]
+// Y range for particles
+const Y_MIN = -3
+const Y_MAX = 3
+const Y_RANGE = Y_MAX - Y_MIN
 
-// Chakra colors
+// Chakra colors for KUNDALINI mode
 const CHAKRA_COLORS = [
   new THREE.Color('#ff0000'), // Root - Red
   new THREE.Color('#ff7700'), // Sacral - Orange
   new THREE.Color('#ffff00'), // Solar - Yellow
   new THREE.Color('#00ff00'), // Heart - Green
   new THREE.Color('#00ffff'), // Throat - Cyan
-  new THREE.Color('#0000ff'), // Third Eye - Indigo
+  new THREE.Color('#4444ff'), // Third Eye - Indigo
   new THREE.Color('#ff00ff'), // Crown - Violet
 ]
 
+// Orbit colors for ORBIT mode (yin/yang blend)
+const ORBIT_COLOR_YANG = new THREE.Color('#ffaa44') // Golden ascending
+const ORBIT_COLOR_YIN = new THREE.Color('#44aaff') // Silver descending
+
 interface ParticleData {
-  offset: number // Phase offset for variation
-  radius: number // Radial distance from spine
-  speed: number // Individual speed multiplier
-  chakraIndex: number // Which chakra this particle is associated with
+  offset: number
+  radius: number
+  speed: number
+  noisePhase: number
+}
+
+/**
+ * Build Microcosmic Orbit curve (CatmullRomCurve3)
+ * - Back ascent (Du Mai): from base up the spine
+ * - Front descent (Ren Mai): from crown down the front
+ */
+function buildOrbitCurve(): THREE.CatmullRomCurve3 {
+  return new THREE.CatmullRomCurve3(
+    [
+      // Start at base (back)
+      new THREE.Vector3(0, Y_MIN, -0.3),
+      // Ascend up the back
+      new THREE.Vector3(0, -2, -0.35),
+      new THREE.Vector3(0, -1, -0.35),
+      new THREE.Vector3(0, 0, -0.35),
+      new THREE.Vector3(0, 1, -0.3),
+      new THREE.Vector3(0, 2, -0.25),
+      // Crown
+      new THREE.Vector3(0, 2.8, -0.1),
+      new THREE.Vector3(0, Y_MAX, 0.1),
+      // Descend down the front
+      new THREE.Vector3(0, 2.8, 0.25),
+      new THREE.Vector3(0, 2, 0.35),
+      new THREE.Vector3(0, 1, 0.35),
+      new THREE.Vector3(0, 0, 0.4),
+      new THREE.Vector3(0, -1, 0.4),
+      new THREE.Vector3(0, -2, 0.35),
+      // Return to base
+      new THREE.Vector3(0, Y_MIN, 0.1),
+    ],
+    true, // closed loop
+    'catmullrom',
+    0.5
+  )
 }
 
 /**
  * PranaParticles - InstancedMesh particles that flow along energy channels
  *
- * Uses Tone.Transport.seconds as the time source (no Date.now/setTimeout)
- * Implements both Linear (Kundalini) and Microcosmic (Taoist) orbit modes
+ * - Uses Tone.Transport.seconds as time source
+ * - Reads stores via getState() to avoid re-renders
+ * - KUNDALINI: Linear Y traversal up/down central axis
+ * - ORBIT: CatmullRomCurve3 loop (back up, front down)
  */
 export function PranaParticles() {
   const meshRef = useRef<THREE.InstancedMesh>(null)
-  const { particleCount } = useVisualStore()
-  const { bpm, ratios, orbitMode } = useBreathStore()
+  const particleCount = useVisualStore.getState().particleCount
   const { getTransportSeconds, setLumens } = useAudio()
 
-  // Create particle data
+  // Pre-build the orbit curve (once)
+  const orbitCurve = useMemo(() => buildOrbitCurve(), [])
+
+  // Create particle data (once, based on initial count)
   const particleData = useMemo<ParticleData[]>(() => {
+    const count = useVisualStore.getState().particleCount
     const data: ParticleData[] = []
-    for (let i = 0; i < particleCount; i++) {
+    for (let i = 0; i < count; i++) {
       data.push({
-        offset: Math.random() * Math.PI * 2,
-        radius: 0.3 + Math.random() * 0.5,
+        offset: Math.random(),
+        radius: 0.2 + Math.random() * 0.4,
         speed: 0.8 + Math.random() * 0.4,
-        chakraIndex: Math.floor(Math.random() * CHAKRA_POSITIONS.length),
+        noisePhase: Math.random() * Math.PI * 2,
       })
     }
     return data
-  }, [particleCount])
+  }, [])
 
-  // Shared geometry and material (created once)
+  // Shared geometry and material
   const geometry = useMemo(() => new THREE.IcosahedronGeometry(0.04, 0), [])
   const material = useMemo(
     () =>
       new THREE.MeshBasicMaterial({
-        color: new THREE.Color(0, 2, 2), // HDR cyan for bloom
+        color: new THREE.Color(0, 2, 2),
         toneMapped: false,
         transparent: true,
         opacity: 0.9,
@@ -89,109 +128,134 @@ export function PranaParticles() {
   useFrame(() => {
     if (!meshRef.current) return
 
+    // Read stores via getState() - no re-renders
+    const { bpm, ratios } = useBreathStore.getState()
+    const { mapMode } = useViewStore.getState()
+    const currentParticleCount = useVisualStore.getState().particleCount
+
     const time = getTransportSeconds()
     const breathState = calculateBreathState(time, bpm, ratios)
 
     // Update audio lumens
     setLumens(breathState.lumens)
 
-    const { phase, cycleProgress } = breathState
+    const { phase, progress, cycleProgress, lumens } = breathState
 
-    // Calculate flow direction based on phase
-    let flowDirection: 1 | -1
-
-    if (phase === BreathPhase.INHALE || phase === BreathPhase.HOLD_IN) {
-      // Rising energy
-      flowDirection = 1
-    } else {
-      // Descending energy
-      flowDirection = -1
-    }
+    // Determine if ascending or descending
+    const isAscending =
+      phase === BreathPhase.INHALE || phase === BreathPhase.HOLD_IN
 
     // Update each particle
-    for (let i = 0; i < particleCount; i++) {
+    const count = Math.min(currentParticleCount, particleData.length)
+    for (let i = 0; i < count; i++) {
       const data = particleData[i]
       if (!data) continue
 
-      // Calculate position along the spine
-      const spineProgress = (cycleProgress + data.offset / (Math.PI * 2)) % 1
+      // Stagger particles with offset
+      const particleProgress = (cycleProgress + data.offset) % 1
 
       let x: number, y: number, z: number
 
-      if (orbitMode === 'linear') {
-        // Linear (Kundalini): Particles rise up spine, descend down spine
-        const spineY =
-          flowDirection === 1
-            ? CHAKRA_POSITIONS[0] +
-              spineProgress *
-                (CHAKRA_POSITIONS[CHAKRA_POSITIONS.length - 1] -
-                  CHAKRA_POSITIONS[0])
-            : CHAKRA_POSITIONS[CHAKRA_POSITIONS.length - 1] -
-              spineProgress *
-                (CHAKRA_POSITIONS[CHAKRA_POSITIONS.length - 1] -
-                  CHAKRA_POSITIONS[0])
+      if (mapMode === 'KUNDALINI') {
+        // KUNDALINI: Linear Y traversal along central axis
+        // Inhale: rise from bottom to top
+        // Exhale: descend from top to bottom
 
-        // Spiral around the spine
-        const angle = spineProgress * Math.PI * 8 + data.offset
-        x = Math.cos(angle) * data.radius
-        y = spineY
-        z = Math.sin(angle) * data.radius
-      } else {
-        // Microcosmic (Taoist): Rise up back, descend down front
-        const totalPath = 2 // Normalized path length (up + down)
-        const pathProgress = cycleProgress * totalPath
-
-        if (pathProgress < 1) {
-          // Rising up the back (spine) - Governor Vessel (Du Mai)
-          const t = pathProgress
-          const spineY =
-            CHAKRA_POSITIONS[0] +
-            t *
-              (CHAKRA_POSITIONS[CHAKRA_POSITIONS.length - 1] -
-                CHAKRA_POSITIONS[0])
-
-          const angle = t * Math.PI * 4 + data.offset
-          x = Math.cos(angle) * data.radius * 0.5 - 0.3 // Offset to back
-          y = spineY
-          z = Math.sin(angle) * data.radius * 0.5 - 0.5
+        let yProgress: number
+        if (isAscending) {
+          // Rising phase
+          yProgress = particleProgress
         } else {
-          // Descending down the front - Conception Vessel (Ren Mai)
-          const t = pathProgress - 1
-          const frontY =
-            CHAKRA_POSITIONS[CHAKRA_POSITIONS.length - 1] -
-            t *
-              (CHAKRA_POSITIONS[CHAKRA_POSITIONS.length - 1] -
-                CHAKRA_POSITIONS[0])
-
-          const angle = t * Math.PI * 4 + data.offset
-          x = Math.cos(angle) * data.radius * 0.5 + 0.3 // Offset to front
-          y = frontY
-          z = Math.sin(angle) * data.radius * 0.5 + 0.5
+          // Descending phase
+          yProgress = 1 - particleProgress
         }
+
+        y = Y_MIN + yProgress * Y_RANGE
+
+        // Gentle spiral around the spine
+        const spiralAngle = particleProgress * Math.PI * 6 + data.noisePhase
+        x = Math.cos(spiralAngle) * data.radius * 0.6
+        z = Math.sin(spiralAngle) * data.radius * 0.6
+
+        // Add subtle swirl during holds
+        if (
+          phase === BreathPhase.HOLD_IN ||
+          phase === BreathPhase.HOLD_OUT
+        ) {
+          const swirl = Math.sin(time * 3 + data.noisePhase) * 0.1
+          x += swirl
+          z += swirl
+        }
+      } else {
+        // ORBIT: CatmullRomCurve3 loop
+        // Inhale drives curve parameter over back portion (0 to 0.5)
+        // Exhale drives curve parameter over front portion (0.5 to 1)
+
+        let curveT: number
+        if (phase === BreathPhase.INHALE) {
+          // Ascending back (0 to ~0.5)
+          curveT = progress * 0.45
+        } else if (phase === BreathPhase.HOLD_IN) {
+          // At crown (0.45 to 0.55)
+          curveT = 0.45 + progress * 0.1
+        } else if (phase === BreathPhase.EXHALE) {
+          // Descending front (0.55 to 1)
+          curveT = 0.55 + progress * 0.4
+        } else {
+          // HOLD_OUT: at base (0.95 to 1 and 0 to 0.05)
+          curveT = 0.95 + progress * 0.1
+          if (curveT >= 1) curveT -= 1
+        }
+
+        // Add particle offset to stagger along the curve
+        curveT = (curveT + data.offset * 0.3) % 1
+
+        // Get position on curve
+        orbitCurve.getPointAt(curveT, tempVec)
+        x = tempVec.x
+        y = tempVec.y
+        z = tempVec.z
+
+        // Add radial offset for visual spread
+        const radialAngle = data.noisePhase + curveT * Math.PI * 4
+        x += Math.cos(radialAngle) * data.radius * 0.3
+        z += Math.sin(radialAngle) * data.radius * 0.3
+
+        // Subtle swirl during all phases (fluid, no pauses)
+        const swirl = Math.sin(time * 2 + data.noisePhase) * 0.05
+        x += swirl
+        z += swirl
       }
 
-      // Add breathing motion
-      const breathScale = 1 + Math.sin(time * 2 + data.offset) * 0.1
-      const scale = 0.5 + breathState.lumens * 0.15
+      // Scale based on lumens
+      const breathScale = 1 + Math.sin(time * 2 + data.noisePhase) * 0.1
+      const scale = (0.4 + lumens * 0.12) * breathScale * data.speed
 
       tempObject.position.set(x, y, z)
-      tempObject.scale.setScalar(scale * breathScale * data.speed)
+      tempObject.scale.setScalar(scale)
       tempObject.updateMatrix()
       meshRef.current.setMatrixAt(i, tempObject.matrix)
 
-      // Color based on nearest chakra
-      const nearestChakra = CHAKRA_POSITIONS.reduce(
-        (nearest, pos, idx) =>
-          Math.abs(pos - y) < Math.abs(CHAKRA_POSITIONS[nearest] - y)
-            ? idx
-            : nearest,
-        0
-      )
+      // Color based on mode
+      if (mapMode === 'KUNDALINI') {
+        // Color by nearest chakra
+        const yNorm = (y - Y_MIN) / Y_RANGE
+        const chakraIndex = Math.floor(yNorm * (CHAKRA_COLORS.length - 1))
+        const clampedIndex = Math.max(
+          0,
+          Math.min(CHAKRA_COLORS.length - 1, chakraIndex)
+        )
+        tempColor
+          .copy(CHAKRA_COLORS[clampedIndex])
+          .multiplyScalar(0.5 + lumens * 0.3)
+      } else {
+        // ORBIT: blend yang/yin based on back/front position
+        const isFrontSide = z > 0
+        tempColor
+          .copy(isFrontSide ? ORBIT_COLOR_YIN : ORBIT_COLOR_YANG)
+          .multiplyScalar(0.5 + lumens * 0.3)
+      }
 
-      // Blend between chakra color and energy intensity
-      tempColor
-        .copy(CHAKRA_COLORS[nearestChakra])
-        .multiplyScalar(0.5 + breathState.lumens * 0.3)
       meshRef.current.setColorAt(i, tempColor)
     }
 

@@ -1,13 +1,14 @@
 import { useRef, useEffect } from 'react'
 import { Canvas, useThree } from '@react-three/fiber'
-import { Grid, AdaptiveDpr, PerformanceMonitor } from '@react-three/drei'
+import { Grid, AdaptiveDpr, PerformanceMonitor, OrbitControls } from '@react-three/drei'
 import { EffectComposer, Bloom } from '@react-three/postprocessing'
 import { KernelSize } from 'postprocessing'
 import * as THREE from 'three'
 import { PranaParticles } from './PranaParticles'
-import { ChakraSpine } from './ChakraSpine'
+import { KundaliniLayer } from './KundaliniLayer'
+import { OrbitLayer } from './OrbitLayer'
 import { disposeScene } from '../three/ResourceTracker'
-import { useVisualStore, useBreathStore } from '../stores'
+import { useVisualStore, useBreathStore, useViewStore } from '../stores'
 
 /**
  * Handle WebGL context loss/restore per PHASE2B_RESEARCH.md
@@ -70,6 +71,7 @@ function Scene() {
   const sceneRef = useRef<THREE.Scene>(null)
   const { setQuality } = useVisualStore()
   const isRunning = useBreathStore((s) => s.isRunning)
+  const mapMode = useViewStore((s) => s.mapMode)
 
   // Cleanup on unmount
   useEffect(() => {
@@ -96,6 +98,9 @@ function Scene() {
         onIncline={() => setQuality('high')}
       />
 
+      {/* Ambient light for glass material */}
+      <ambientLight intensity={0.2} />
+
       {/* Infinite neon grid */}
       <Grid
         infiniteGrid
@@ -110,11 +115,27 @@ function Scene() {
         position={[0, -3, 0]}
       />
 
-      {/* Chakra spine visualization */}
-      <ChakraSpine />
+      {/* Kundalini Layer - visible only in KUNDALINI mode */}
+      <group visible={mapMode === 'KUNDALINI'}>
+        <KundaliniLayer />
+      </group>
+
+      {/* Orbit Layer - visible only in ORBIT mode */}
+      <group visible={mapMode === 'ORBIT'}>
+        <OrbitLayer />
+      </group>
 
       {/* Prana particles - only animate when running */}
       {isRunning && <PranaParticles />}
+
+      {/* Camera controls */}
+      <OrbitControls
+        enablePan={false}
+        minDistance={5}
+        maxDistance={25}
+        minPolarAngle={Math.PI / 6}
+        maxPolarAngle={Math.PI / 1.5}
+      />
 
       {/* Adaptive bloom post-processing */}
       <AdaptiveEffects />
